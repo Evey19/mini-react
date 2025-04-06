@@ -1,0 +1,15 @@
+并发渲染模式
+自动批处理优化
+Suspense边界处理
+
+Hooks系统
+Fiber架构重构
+
+增量渲染调度
+内存泄漏检测
+完整实现还需要在虚拟DOM的diff算法中添加对Suspense组件的特殊处理
+
+为什么执行布局Effect，什么是布局effect 什么是异步effect
+获取当前hook索引为什么要++呢
+useState中的更新队列是干嘛的，为什么需要更新队列
+useLayoutEffect为什么在已经有了的情况下还要更新Effect，重新加入队列呢

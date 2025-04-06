@@ -1,0 +1,13 @@
+{
+  "scripts": {
+    "test": "vitest"
+  },
+  "devDependencies": {
+    "@vitest/ui": "^3.0.9",
+    "happy-dom": "^17.4.4",
+    "vitest": "^3.0.9"
+  },
+  "dependencies": {
+    "vite": "^6.2.3"
+  }
+}

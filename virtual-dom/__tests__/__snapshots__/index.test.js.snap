@@ -1,0 +1,27 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`virtual-dom > diff算法 > 应该处理子节点变化 1`] = `
+[
+  {
+    "index": 0,
+    "newNode": VNode {
+      "children": undefined,
+      "props": undefined,
+      "type": "div",
+    },
+    "type": "REPLACE",
+  },
+]
+`;
+
+exports[`virtual-dom > diff算法 > 应该检测属性变化 1`] = `
+[
+  {
+    "index": 0,
+    "props": {
+      "id": "new",
+    },
+    "type": "UPDATE_PROPS",
+  },
+]
+`;
