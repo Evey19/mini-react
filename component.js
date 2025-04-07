@@ -1,9 +1,59 @@
-import { patch } from "./virtual-dom";
+import { patch, diff } from "./virtual-dom";
 import {
   processUpdateQueue,
   enqueueUpdate,
-  startTransition,
+  startTransition as globalStartTransition,
+  UpdatePriorities,
 } from "./update-queue";
+
+let contextIdCounter = 0;
+
+export function createContext(defaultValue) {
+  const contextId = `context_${contextIdCounter++}`;
+
+  class Provider extends Component {
+    /**
+     * 定义静态属性，这些静态成员属于类本身，而不是类的实例，无法通过实例调用，只能被类本身调用
+     *  这里将context对象关联到Provider类上，方便访问
+     */
+    static contextType = Context;
+
+    componentDidMount() {
+      this.updateContextValue(this.props.value);
+    }
+
+    componentDidUpdate(prevProps) {
+      if (!Object.is(this.props.value, prevProps.value)) {
+        this.updateContextValue(this.props.value);
+      }
+    }
+
+    updateContextValue(value) {
+      const context = Provider.contextType;
+      context._currentValue = value;
+
+      context._subscribers.forEach((componentInstance) => {
+        enqueueUpdate(componentInstance);
+      });
+    }
+
+    render() {
+      // Provider只渲染子节点
+      return this.props.children;
+    }
+  }
+
+  const Context = {
+    _id: contextId,
+    _defaultValue: defaultValue,
+    _currentValue: defaultValue, // 当前值，Provider会更新它
+    _subscribers: new Set(), // 存储订阅了此context的组件实例
+    Provider: Provider,
+    Consumer: null, // 之后实现
+  };
+
+  return Context;
+}
 
 export class Component {
   constructor(props) {
@@ -326,7 +376,7 @@ export class Suspense extends Component {
   // 用于捕获Promise
   componentDidCatch(error) {
     if (error instanceof Promise) {
-      startTransition(() => {
+      globalStartTransition(() => {
         error.then(() => this.setState({ hasError: false }));
       });
       this.setState({ hasError: true });
@@ -434,6 +484,116 @@ const HooksDispatcher = {
       component.__hooks[hookIndex] = effect;
     }
   },
+  useRef: function (initialValue) {
+    const hookIndex = this.__hookIndex++;
+    const component = this.__currentInstance;
+    if (!component.__hooks[hookIndex]) {
+      component.__hooks[hookIndex] = { current: initialValue };
+    }
+    return component.__hooks[hookIndex];
+  },
+  // useCallback返回出来的是一个函数
+  useCallback: function (callback, deps) {
+    const hookIndex = this.__hookIndex++;
+    const component = this.__currentInstance;
+    if (!component.__hooks[hookIndex]) {
+      component.__hooks[hookIndex] = { callback, deps };
+    } else {
+      const prevHook = component.__hooks[hookIndex];
+      if (shallowEqual(prevHook.deps, deps)) {
+        return prevHook.callback;
+      }
+      component.__hooks[hookIndex] = { callback, deps };
+    }
+    return callback;
+  },
+  useMemo: function (create, deps) {
+    const hookIndex = this.__hookIndex++;
+    const component = this.__currentInstance;
+    if (!component.__hooks[hookIndex]) {
+      const value = create();
+      component.__hooks[hookIndex] = { value, deps };
+      return value;
+    } else {
+      const prevHook = component.__hooks[hookIndex];
+      if (shallowEqual(prevHook.deps, deps)) {
+        return prevHook.value;
+      }
+      const value = create();
+      component.__hooks[hookIndex] = { value, deps };
+      return value;
+    }
+  },
+  useReducer: function (reducer, initialArg, init) {
+    const hookIndex = this.__hookIndex++;
+    const component = this.__currentInstance;
+    if (!component.__hooks[hookIndex]) {
+      const initialState = init ? init(initialArg) : initialArg;
+      component.__hooks[hookIndex] = {
+        state: initialState,
+        reducer,
+        queue: [],
+      };
+    }
+    const hook = component.__hooks[hookIndex];
+    const queue = [...hook.queue];
+    hook.queue = [];
+
+    let newState = queue.reduce((state, action) => {
+      return hook.reducer(state, action);
+    }, hook.state);
+
+    hook.state = newState;
+
+    const dispatch = (action) => {
+      hook.queue.push(action);
+      enqueueUpdate(component);
+    };
+
+    return [hook.state, dispatch];
+  },
+  useTransition: function () {
+    const component = this.__currentInstance;
+    const pendingStateHookIndex = this.__hookIndex++;
+    if (!component.__hooks[pendingStateHookIndex]) {
+      component.__hooks[pendingStateHookIndex] = {
+        state: false,
+        queue: [],
+      };
+    }
+    const pendingHook = component.__hooks[pendingStateHookIndex];
+    const pendingQueue = [...pendingHook.queue];
+    pendingHook.queue = [];
+    let isPending = pendingQueue.reduce((state, action) => {
+      return typeof action === "function" ? action(state) : action;
+    }, pendingHook.state);
+    pendingHook.state = isPending;
+    const setIsPending = (action) => {
+      pendingHook.queue.push(action);
+      // isPending状态的更新应该是高优先级的，立即反映UI变化，如果开发者使用了isPending来控制UI
+      enqueueUpdate(component, false, UpdatePriorities.UserBlockingPriority);
+    };
+    const startTransition = (scope) => {
+      setIsPending(true);
+      globalStartTransition(() => {
+        try {
+          scope();
+        } finally {
+          /**
+           * 为什么异步地将isPending设置为false?
+           * 在scope函数内部，任何调用setState或dispatch的操作，因为当前优先级是低的，这些低优先级的任务不会被立即执行，需要等待浏览器空闲或者高优先级任务完成后
+           * 如果setIsPending是同步的，会导致isPending状态过早的变为false
+           * 而我们这里只是简单模拟，实际react中调度更精确
+           */
+          setTimeout(() => {
+            setIsPending(false);
+          }, 0);
+        }
+      });
+    };
+    return [isPending, startTransition];
+  },
+  useContext: function (Context) {},
 };
 
 Component.prototype.useState = function (initialState) {

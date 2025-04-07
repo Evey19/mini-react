@@ -13,3 +13,5 @@ Fiber架构重构
 获取当前hook索引为什么要++呢
 useState中的更新队列是干嘛的，为什么需要更新队列
 useLayoutEffect为什么在已经有了的情况下还要更新Effect，重新加入队列呢
+useReducer为什么dispatch后添加到数组，useReducer是在哪里被执行的呢
+provider类中props是从哪里来的呢
